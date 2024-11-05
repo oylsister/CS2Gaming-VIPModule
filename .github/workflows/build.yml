@@ -1,0 +1,82 @@
+name: Build
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    permissions:
+      contents: write
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+    
+    - name: Get API Core
+      run: |
+        cd ../
+        git clone https://github.com/oylsister/CS2GamingAPI.git
+        git clone https://github.com/partiusfabaa/cs2-VIPCore.git
+        cd CS2Gaming-VIPModule
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --no-restore
+
+    # Get version from .cs file
+    - name: Get Version
+      run: |
+        version=$(grep 'public override string ModuleVersion =>' /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/Plugin.cs | sed 's/.*=> "\(.*\)";/\1/')
+        version_under=${version// /_}
+        version_minus=${version// /-}
+        short_sha=$(echo $GITHUB_SHA | cut -c1-7)
+        tag=$(echo $version_minus | tr '[:upper:]' '[:lower:]')
+        file_ver=$(echo $version_under | tr '[:upper:]' '[:lower:]')
+        echo "VERSION=$version" >> $GITHUB_ENV
+        echo "VERSION_UNDER=$version_under" >> $GITHUB_ENV
+        echo "VERSION_MINUS=$version_minus" >> $GITHUB_ENV
+        echo "SHORT_SHA=$short_sha" >> $GITHUB_ENV
+        echo "TAG=$tag" >> $GITHUB_ENV
+        echo "FILE_VER=$file_ver" >> $GITHUB_ENV
+    
+    # gather all file in for release
+    - name: Prepare Directory
+      run: | 
+        # make main folder
+        mkdir -p release/VipRestriction
+
+        # Copy all plugins files
+        cp /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/bin/Debug/net8.0/VipRestriction.dll release/VipRestriction
+        cp /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/bin/Debug/net8.0/VipRestriction.pdb release/VipRestriction
+        cp /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/bin/Debug/net8.0/Newtonsoft.Json.dll release/VipRestriction
+
+        cp -r /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/lang/ release/VipRestriction
+
+    # artifact for user to getting a file.
+    - uses: actions/upload-artifact@v4
+      with:
+        name: VIPModule-${{ env.SHORT_SHA }}
+        path: release/
+
+    # zip file
+    - name: Zip File
+      run: |
+        cd release
+        zip -r "VIPModule_${{ env.FILE_VER }}.zip" VipRestriction
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ env.TAG }}
+        name: ${{ env.VERSION }}
+        files: release/VIPModule_${{ env.FILE_VER }}.zip
