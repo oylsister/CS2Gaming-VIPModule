@@ -1,5 +1,7 @@
-# CS2Gaming-ShopItem
+# CS2Gaming-VIPModule
  VIP Module for [CS2GamingAPI](https://github.com/oylsister/CS2GamingAPI/), After select specific item from VIP Menu will trigger API Request from CS2GamingAPICore and set cooldown for that feature.
+
+https://www.youtube.com/watch?v=bJz9z3PU_Os
 
 ## Requirement
 - [cs2-VIPCore](https://github.com/partiusfabaa/cs2-VIPCore)
