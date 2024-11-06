@@ -53,14 +53,14 @@ jobs:
     - name: Prepare Directory
       run: | 
         # make main folder
-        mkdir -p release/VipRestriction
+        mkdir -p release/VipItem
 
         # Copy all plugins files
-        cp /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/bin/Debug/net8.0/VipRestriction.dll release/VipRestriction
-        cp /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/bin/Debug/net8.0/VipRestriction.pdb release/VipRestriction
-        cp /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/bin/Debug/net8.0/Newtonsoft.Json.dll release/VipRestriction
+        cp /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/bin/Debug/net8.0/VipItem.dll release/VipItem
+        cp /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/bin/Debug/net8.0/VipItem.pdb release/VipItem
+        cp /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/bin/Debug/net8.0/VipItem.Json.dll release/VipItem
 
-        cp -r /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/lang/ release/VipRestriction
+        cp -r /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/lang/ release/VipItem
 
     # artifact for user to getting a file.
     - uses: actions/upload-artifact@v4
@@ -72,7 +72,7 @@ jobs:
     - name: Zip File
       run: |
         cd release
-        zip -r "VIPModule_${{ env.FILE_VER }}.zip" VipRestriction
+        zip -r "VIPModule_${{ env.FILE_VER }}.zip" VipItem
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2

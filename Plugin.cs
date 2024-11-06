@@ -10,19 +10,20 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using VipCoreApi;
 using static CounterStrikeSharp.API.Core.Listeners;
+using static VipCoreApi.IVipCoreApi;
 
-namespace VipRestriction
+namespace VipItem
 {
-    public class Plugin : BasePlugin, IPluginConfig<Configs>
+    public class Plugin : BasePlugin
     {
-        public override string ModuleName => "Vip Restriction";
-        public override string ModuleVersion => "1.0";
+        public override string ModuleName => "Vip Item";
+        public override string ModuleVersion => "1.1";
 
         private ICS2GamingAPIShared? _cs2gamingAPI { get; set; }
-        private IVipCoreApi? _vipAPI { get; set; } 
+        private IVipCoreApi? _vipAPI { get; set; }
+        private CS2GamingItem? _itemFeature;
         public static PluginCapability<ICS2GamingAPIShared> _capability { get; } = new("cs2gamingAPI");
         public static PluginCapability<IVipCoreApi> _vipCap { get; } = new("vipcore:core");
-        public Configs Config { get; set; } = new Configs();
         public Dictionary<CCSPlayerController, PlayerData> _playerVipClaimed { get; set; } = new();
         public string? filePath { get; set; }
         public readonly ILogger<Plugin> _logger;
@@ -33,6 +34,14 @@ namespace VipRestriction
             InitializeData();
         }
 
+        public override void Unload(bool hotReload)
+        {
+            if (_vipAPI != null && _itemFeature != null)
+            {
+                _vipAPI?.UnRegisterFeature(_itemFeature);
+            }
+        }
+
         public override void OnAllPluginsLoaded(bool hotReload)
         {
             _cs2gamingAPI = _capability.Get();
@@ -41,17 +50,13 @@ namespace VipRestriction
             if (_vipAPI == null)
                 return;
 
-            _vipAPI.OnPlayerUseFeature += OnPlayerUseFeature;
+            _itemFeature = new CS2GamingItem(this, _vipAPI);
+            _vipAPI.RegisterFeature(_itemFeature, FeatureType.Selectable);
         }
 
         public Plugin(ILogger<Plugin> logger)
         {
             _logger = logger;
-        }
-
-        public void OnConfigParsed(Configs config)
-        {
-            Config = config;
         }
 
         public void InitializeData()
@@ -81,46 +86,24 @@ namespace VipRestriction
 
             var data = GetPlayerData(steamID);
 
-            _playerVipClaimed.Add(client!, new());
-
             if (data == null)
             {
-                //_playerVipClaimed.Add(client!, new(DateTime.Now.ToString(), DateTime.Now.AddDays(7.0f).ToString(), false));
-                if (Config.RestrictList == null)
-                    return HookResult.Continue;
-
-                foreach (var item in Config.RestrictList)
-                {
-                    _playerVipClaimed[client].AllFeatureData!.Add(item, new(DateTime.Now.ToString(), DateTime.Now.AddDays(7.0f).ToString(), false));
-                }
-
-                SaveClientData(steamID, false, "", true);
+                _playerVipClaimed.Add(client!, new(DateTime.Now.ToString(), DateTime.Now.AddDays(7.0f).ToString(), false));
             }
-
             else
             {
-                if (data!.AllFeatureData == null)
-                    return HookResult.Continue;
+                var claimed = data.Claimed;
+                var timeReset = DateTime.ParseExact(data.TimeReset, "M/d/yyyy h:mm:ss tt", CultureInfo.InvariantCulture);
 
-                if (Config.RestrictList == null)
-                    return HookResult.Continue;
-
-                foreach (var item in Config.RestrictList)
+                if (timeReset <= DateTime.Now)
                 {
-                    bool claimed = false;
-
-                    if (data.AllFeatureData.ContainsKey(item))
-                    {
-                        claimed = data.AllFeatureData[item].Claimed;
-                        var timeReset = DateTime.ParseExact(data.AllFeatureData[item].TimeReset, "M/d/yyyy h:mm:ss tt", CultureInfo.InvariantCulture);
-                        if (timeReset <= DateTime.Now)
-                        {
-                            claimed = false;
-                        }
-                    }
-
-                    _playerVipClaimed[client].AllFeatureData!.Add(item, new(DateTime.Now.ToString(), DateTime.Now.AddDays(7.0f).ToString(), claimed));
+                    claimed = false;
+                    data.TimeAcheived = DateTime.Now.ToString();
+                    data.TimeReset = DateTime.Now.AddDays(7.0f).ToString();
+                    Task.Run(async () => await SaveClientData(steamID, claimed, true));
                 }
+
+                _playerVipClaimed.Add(client, new(data.TimeAcheived, data.TimeReset, claimed));
             }
 
             return HookResult.Continue;
@@ -134,85 +117,42 @@ namespace VipRestriction
                 return;
 
             var steamID = client!.AuthorizedSteamID!.SteamId64;
-            var theList = _playerVipClaimed[client].AllFeatureData;
+            var claimed = _playerVipClaimed[client].Claimed;
 
-            if (theList == null)
-            {
-                _logger.LogError("{0} data is null, this will not be saved!", client.PlayerName);
-                return;
-            }
-
-            _logger.LogInformation("Disconnect here.");
-            SaveClientData(steamID, false, string.Empty, false, _playerVipClaimed[client!]);
+            Task.Run(async () => await SaveClientData(steamID, claimed, !claimed));
 
             _playerVipClaimed.Remove(client!);
         }
 
-        public HookResult? OnPlayerUseFeature(CCSPlayerController client, string feature, IVipCoreApi.FeatureState state, IVipCoreApi.FeatureType type)
+        public void AfterSelect(CCSPlayerController client)
         {
-            //Server.PrintToChatAll("Start here");
-            if (Config == null)
-                return HookResult.Continue;
-
-            if (Config.RestrictList == null || Config.RestrictList.Count == 0)
-                return HookResult.Continue;
-
             if (!IsValidPlayer(client))
-                return HookResult.Continue;
+                return;
 
             if (!_playerVipClaimed.ContainsKey(client!))
-                return HookResult.Continue;
+                return;
 
-            //Server.PrintToChatAll("They all passed");
-
-            // Server.PrintToChatAll($"{client.PlayerName} is using {feature} state: {state} type: {type}");
-
-            if (type == IVipCoreApi.FeatureType.Selectable)
+            if (_playerVipClaimed[client].Claimed)
             {
-                if (!Config.RestrictList.Contains(feature))
-                    return HookResult.Continue;
+                var now = DateTime.Now;
+                var available = DateTime.ParseExact(_playerVipClaimed[client].TimeReset, "M/d/yyyy h:mm:ss tt", CultureInfo.InvariantCulture);
 
-                // Server.PrintToChatAll($"{feature} is included");
+                var timeleft = available - now;
 
-                if (_playerVipClaimed[client].AllFeatureData![feature].Claimed)
-                {
-                    var now = DateTime.Now;
-                    var available = DateTime.ParseExact(_playerVipClaimed[client].AllFeatureData![feature].TimeReset, "M/d/yyyy h:mm:ss tt", CultureInfo.InvariantCulture);
-
-                    var timeleft = available - now;
-
-                    client.PrintToChat($" {Localizer.ForPlayer(client, "Prefix")} {Localizer.ForPlayer(client, "Cooldown", timeleft.Days, timeleft.Hours, timeleft.Minutes)}");
-
-                    return HookResult.Handled;
-                }
-
-                AfterSelect(client!, feature);
+                client.PrintToChat($" {Localizer.ForPlayer(client, "Prefix")} {Localizer.ForPlayer(client, "Cooldown", timeleft.Days, timeleft.Hours, timeleft.Minutes)}");
+                return;
             }
 
-            return HookResult.Continue;
-        }
-
-        public void AfterSelect(CCSPlayerController client, string feature)
-        {
-            if (!IsValidPlayer(client))
-                return;
-
-            if (!_playerVipClaimed.ContainsKey(client!))
-                return;
-
-            if (_playerVipClaimed[client].AllFeatureData![feature].Claimed)
-                return;
-
             var steamid = client.AuthorizedSteamID?.SteamId64;
-            Task.Run(async () => await SelectComplete(client!, (ulong)steamid!, feature));
+            Task.Run(async () => await SelectComplete(client!, (ulong)steamid!));
         }
 
-        public async Task SelectComplete(CCSPlayerController client, ulong steamid, string feature)
+        public async Task SelectComplete(CCSPlayerController client, ulong steamid)
         {
-            if (_playerVipClaimed[client].AllFeatureData![feature].Claimed)
+            if (_playerVipClaimed[client].Claimed)
                 return;
 
-            _playerVipClaimed[client].AllFeatureData![feature].Claimed = true;
+            _playerVipClaimed[client].Claimed = true;
 
             var response = await _cs2gamingAPI?.RequestSteamID(steamid!)!;
             if (response != null)
@@ -234,104 +174,42 @@ namespace VipRestriction
                     client.PrintToChat($" {ChatColors.Green}[VIP]{ChatColors.White} {message}");
                 });
 
-                SaveClientData(steamid!, true, feature, true);
+                await SaveClientData(steamid!, true, true);
             }
         }
 
-        public void SaveClientData(ulong steamid, bool claimed, string featureName = "", bool settime = false, PlayerData data = null!)
+        private async Task SaveClientData(ulong steamid, bool claimed, bool settime)
         {
-            // Set time for update shit.
             var finishTime = DateTime.Now.ToString();
             var resetTime = DateTime.Now.AddDays(7.0).ToString();
             var steamKey = steamid.ToString();
 
-            // new data for new player.
-            if(data == null)
-                data = new PlayerData();
+            var data = new PlayerData(finishTime, resetTime, claimed);
 
-            // get json file
             var jsonObject = ParseFileToJsonObject();
 
             if (jsonObject == null)
-            {
-                _logger.LogError("Json is null!");
                 return;
-            }
 
-            // if contain steamkey then let's go and update
             if (jsonObject.ContainsKey(steamKey))
             {
-                _logger.LogInformation("Found {0}", steamKey);
+                jsonObject[steamKey].Claimed = claimed;
 
-                // if feature name is in param
-                if (!string.IsNullOrEmpty(featureName) || !string.IsNullOrWhiteSpace(featureName))
+                if (settime)
                 {
-                    // if feature name not found in json.
-                    if (!jsonObject[steamKey].AllFeatureData!.ContainsKey(featureName))
-                    {
-                        // added it.
-                        jsonObject[steamKey].AllFeatureData!.Add(featureName, new(finishTime, resetTime, claimed));
-                    }
-
-                    // if they're just update.
-                    else
-                    {
-                        // settime will get trigger, but mostly for non claimed stuff.
-                        if (settime)
-                        {
-                            jsonObject[steamKey].AllFeatureData![featureName].TimeAcheived = finishTime;
-                            jsonObject[steamKey].AllFeatureData![featureName].TimeReset = resetTime;
-                        }
-
-                        // claimed it or not.
-                        jsonObject[steamKey].AllFeatureData![featureName].Claimed = claimed;
-                    }
+                    jsonObject[steamKey].TimeAcheived = finishTime;
+                    jsonObject[steamKey].TimeReset = resetTime;
                 }
 
-                // if they're not set feature name in param
-
-                else
-                {
-                    // loop for List
-                    foreach (var item in Config.RestrictList!)
-                    {
-                        // if feature name not found in json.
-                        if (!jsonObject[steamKey].AllFeatureData!.ContainsKey(item))
-                        {
-                            // add it as false
-                            jsonObject[steamKey].AllFeatureData!.Add(item, new(finishTime, resetTime, false));
-                        }
-
-                        // found it
-                        else
-                        {
-                            // this time we check if it not claimed then we still need to updated time, if claimed then let them be.
-                            if (!jsonObject[steamKey].AllFeatureData![item].Claimed)
-                            {
-                                jsonObject[steamKey].AllFeatureData![item].TimeAcheived = finishTime;
-                                jsonObject[steamKey].AllFeatureData![item].TimeReset = resetTime;
-                            }
-
-                            // claimed it or not this is no need it intend for saving time data.
-                            // jsonObject[steamKey].AllFeatureData![featureName].Claimed = claimed;
-                        }
-                    }
-                }
-
-                // save it.
                 var updated = JsonConvert.SerializeObject(jsonObject, Formatting.Indented);
-                //_logger.LogInformation("{0}", updated);
-                File.WriteAllTextAsync(filePath!, updated);
+                await File.WriteAllTextAsync(filePath!, updated);
             }
 
-            // just added a new one.
             else
             {
-                _logger.LogInformation("There is no key for {0}", steamKey);
                 jsonObject.Add(steamKey, data);
                 var updated = JsonConvert.SerializeObject(jsonObject, Formatting.Indented);
-               // _logger.LogInformation("Added {0}", updated);
-                File.WriteAllTextAsync(filePath!, updated);
+                await File.WriteAllTextAsync(filePath!, updated);
             }
         }
 
@@ -361,6 +239,23 @@ namespace VipRestriction
         public bool IsValidPlayer(CCSPlayerController? client)
         {
             return client != null && client.IsValid && !client.IsBot;
+        }
+    }
+
+    public class CS2GamingItem : VipFeatureBase
+    {
+        public override string Feature => "CS2GamingItem";
+
+        private readonly Plugin _plugin;
+
+        public CS2GamingItem(Plugin plugin, IVipCoreApi api) : base(api)
+        {
+            _plugin = plugin;
+        }
+
+        public override void OnSelectItem(CCSPlayerController player, FeatureState state)
+        {
+            _plugin.AfterSelect(player);
         }
     }
 }

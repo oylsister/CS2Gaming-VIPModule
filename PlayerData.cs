@@ -1,18 +1,8 @@
-﻿namespace VipRestriction
+﻿namespace VipItem
 {
     public class PlayerData
     {
-        public PlayerData()
-        {
-            AllFeatureData = new();
-        }
-
-        public Dictionary<string, FeatureData>? AllFeatureData { get; set; } = new Dictionary<string, FeatureData>();
-    }
-
-    public class FeatureData
-    {
-        public FeatureData(string achieve, string reset, bool claimed = false)
+        public PlayerData(string achieve, string reset, bool claimed = false)
         {
             _timeAcheived = achieve;
             _timeReset = reset;
