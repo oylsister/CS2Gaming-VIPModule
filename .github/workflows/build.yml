@@ -58,7 +58,7 @@ jobs:
         # Copy all plugins files
         cp /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/bin/Debug/net8.0/VipItem.dll release/VipItem
         cp /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/bin/Debug/net8.0/VipItem.pdb release/VipItem
-        cp /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/bin/Debug/net8.0/VipItem.Json.dll release/VipItem
+        cp /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/bin/Debug/net8.0/Newtonsoft.Json.dll release/VipItem
 
         cp -r /home/runner/work/CS2Gaming-VIPModule/CS2Gaming-VIPModule/lang/ release/VipItem
 
